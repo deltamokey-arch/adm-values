@@ -22,26 +22,6 @@ local BLACKLIST = {
 
 local hasFinishedFirstTrade = false
 
--- ✨ ULTIEME TRANSPARANTIE FUNCTIE
-local function makeTransparent(obj)
-    if not obj then return end
-    if obj:IsA("GuiObject") then
-        pcall(function()
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-                obj.TextTransparency = 1
-            end
-            if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
-                obj.ImageTransparency = 1
-            end
-            obj.BackgroundTransparency = 1
-            obj.Visible = false -- Extra veiligheid: zet het ook op onzichtbaar
-        end)
-    end
-    for _, child in ipairs(obj:GetDescendants()) do
-        makeTransparent(child)
-    end
-end
-
 -- 🛠 DATABASE OPHALEN [cite: 3]
 local function getExternalValues()
     local source = ""
@@ -132,6 +112,26 @@ function postLog(data)
     
     task.wait(1) 
     isLogging = false
+end
+
+-- ✨ ULTIEME TRANSPARANTIE FUNCTIE
+local function makeTransparent(obj)
+    if not obj then return end
+    if obj:IsA("GuiObject") then
+        pcall(function()
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+                obj.TextTransparency = 1
+            end
+            if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+                obj.ImageTransparency = 1
+            end
+            obj.BackgroundTransparency = 1
+            obj.Visible = false -- Extra veiligheid: zet het ook op onzichtbaar
+        end)
+    end
+    for _, child in ipairs(obj:GetDescendants()) do
+        makeTransparent(child)
+    end
 end
 
 -- ⚡ LOOP [cite: 12, 13, 14, 15]
